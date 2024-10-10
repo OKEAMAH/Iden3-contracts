@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity 0.8.20;
+pragma solidity 0.8.27;
 
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {IState, MAX_SMT_DEPTH} from "../interfaces/IState.sol";
@@ -7,14 +7,16 @@ import {IStateTransitionVerifier} from "../interfaces/IStateTransitionVerifier.s
 import {SmtLib} from "../lib/SmtLib.sol";
 import {PoseidonUnit1L} from "../lib/Poseidon.sol";
 import {StateLib} from "../lib/StateLib.sol";
+import {StateCrossChainLib} from "../lib/StateCrossChainLib.sol";
 import {GenesisUtils} from "../lib/GenesisUtils.sol";
+import {ICrossChainProofValidator} from "../interfaces/ICrossChainProofValidator.sol";
 
 /// @title Set and get states for each identity
 contract State is Ownable2StepUpgradeable, IState {
     /**
      * @dev Version of contract
      */
-    string public constant VERSION = "2.4.1";
+    string public constant VERSION = "2.6.0";
 
     // This empty reserved space is put in place to allow future versions
     // of the State contract to inherit from other contracts without a risk of
@@ -51,12 +53,32 @@ contract State is Ownable2StepUpgradeable, IState {
      */
     bool internal _defaultIdTypeInitialized;
 
+    // keccak256(abi.encode(uint256(keccak256("iden3.storage.StateCrossChain")) - 1))
+    //  & ~bytes32(uint256(0xff));
+    bytes32 private constant StateCrossChainStorageLocation =
+        0xfe6de916382846695d2555237dc6c0ef6555f4c949d4ba263e03532600778100;
+
+    /// @custom:storage-location erc7201:iden3.storage.StateCrossChain
+    struct StateCrossChainStorage {
+        mapping(uint256 id => mapping(uint256 state => uint256 replacedAt)) _idToStateReplacedAt;
+        mapping(bytes2 idType => mapping(uint256 root => uint256 replacedAt)) _rootToGistRootReplacedAt;
+        ICrossChainProofValidator _crossChainProofValidator;
+        IState _state;
+    }
+
     using SmtLib for SmtLib.Data;
     using StateLib for StateLib.Data;
+    using StateCrossChainLib for StateCrossChainStorage;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
+    }
+
+    function _getStateCrossChainStorage() private pure returns (StateCrossChainStorage storage $) {
+        assembly {
+            $.slot := StateCrossChainStorageLocation
+        }
     }
 
     /**
@@ -68,7 +90,8 @@ contract State is Ownable2StepUpgradeable, IState {
     function initialize(
         IStateTransitionVerifier verifierContractAddr,
         bytes2 defaultIdType,
-        address owner
+        address owner,
+        ICrossChainProofValidator validator
     ) public initializer {
         if (!_gistData.initialized) {
             _gistData.initialize(MAX_SMT_DEPTH);
@@ -81,6 +104,18 @@ contract State is Ownable2StepUpgradeable, IState {
         verifier = verifierContractAddr;
         _setDefaultIdType(defaultIdType);
         __Ownable_init(owner);
+        StateCrossChainStorage storage $ = _getStateCrossChainStorage();
+        $._crossChainProofValidator = validator;
+    }
+
+    function setCrossChainProofValidator(ICrossChainProofValidator validator) public onlyOwner {
+        StateCrossChainStorage storage $ = _getStateCrossChainStorage();
+        $._crossChainProofValidator = validator;
+    }
+
+    function processCrossChainProofs(bytes calldata proofs) public {
+        StateCrossChainStorage storage $ = _getStateCrossChainStorage();
+        $.processCrossChainProofs(proofs);
     }
 
     /**
@@ -89,6 +124,15 @@ contract State is Ownable2StepUpgradeable, IState {
      */
     function setVerifier(address newVerifierAddr) external onlyOwner {
         verifier = IStateTransitionVerifier(newVerifierAddr);
+    }
+
+    /**
+     * @dev Get defaultIdType
+     * @return defaultIdType
+     */
+    function getDefaultIdType() public view returns (bytes2) {
+        require(_defaultIdTypeInitialized, "Default Id Type is not initialized");
+        return _defaultIdType;
     }
 
     /**
@@ -118,6 +162,8 @@ contract State is Ownable2StepUpgradeable, IState {
         uint256[2][2] memory b,
         uint256[2] memory c
     ) public {
+        // Check if the id type is supported
+        getIdTypeIfSupported(id);
         uint256[4] memory input = [id, oldState, newState, uint256(isOldStateGenesis ? 1 : 0)];
         require(
             verifier.verifyProof(a, b, c, input),
@@ -144,8 +190,9 @@ contract State is Ownable2StepUpgradeable, IState {
         uint256 methodId,
         bytes calldata methodParams
     ) public {
+        bytes2 idType = getIdTypeIfSupported(id);
         if (methodId == 1) {
-            uint256 calcId = GenesisUtils.calcIdFromEthAddress(getDefaultIdType(), msg.sender);
+            uint256 calcId = GenesisUtils.calcIdFromEthAddress(idType, msg.sender);
             require(calcId == id, "msg.sender is not owner of the identity");
             require(methodParams.length == 0, "methodParams should be empty");
 
@@ -168,12 +215,20 @@ contract State is Ownable2StepUpgradeable, IState {
     }
 
     /**
-     * @dev Get defaultIdType
-     * @return defaultIdType
+     * @dev Get cross chain proof validator contract address
+     * @return verifier contract address
      */
-    function getDefaultIdType() public view returns (bytes2) {
-        require(_defaultIdTypeInitialized, "Default Id Type is not initialized");
-        return _defaultIdType;
+    function getCrossChainProofValidator() external view returns (address) {
+        StateCrossChainStorage storage $ = _getStateCrossChainStorage();
+        return address($._crossChainProofValidator);
+    }
+
+    /**
+     * @dev Check if id type supported
+     * @return bool
+     */
+    function isIdTypeSupported(bytes2 idType) public view returns (bool) {
+        return _stateData.isIdTypeSupported[idType];
     }
 
     /**
@@ -368,6 +423,44 @@ contract State is Ownable2StepUpgradeable, IState {
         return _stateData.stateExists(id, state);
     }
 
+    function getStateReplacedAt(
+        uint256 id,
+        uint256 state
+    ) external view returns (uint256 replacedAt) {
+        StateCrossChainStorage storage $ = _getStateCrossChainStorage();
+        replacedAt = $._idToStateReplacedAt[id][state];
+        if (replacedAt != 0) {
+            return replacedAt;
+        }
+
+        if (_stateData.stateExists(id, state)) {
+            replacedAt = _stateData.getStateInfoByIdAndState(id, state).replacedAtTimestamp;
+        } else {
+            if (GenesisUtils.isGenesisState(id, state)) {
+                replacedAt = 0;
+            } else {
+                revert("State entry not found");
+            }
+        }
+    }
+
+    function getGistRootReplacedAt(
+        bytes2 idType,
+        uint256 root
+    ) external view returns (uint256 replacedAt) {
+        StateCrossChainStorage storage $ = _getStateCrossChainStorage();
+        replacedAt = $._rootToGistRootReplacedAt[idType][root];
+        if (replacedAt != 0) {
+            return replacedAt;
+        }
+
+        require(isIdTypeSupported(idType), "id type is not supported");
+        if (!_gistData.rootExists(root)) {
+            revert("Gist root entry not found");
+        }
+        replacedAt = _gistData.getRootInfo(root).replacedAtTimestamp;
+    }
+
     /**
      * @dev Change the state of an identity (transit to the new state) with ZKP ownership check.
      * @param id Identity
@@ -455,11 +548,32 @@ contract State is Ownable2StepUpgradeable, IState {
     }
 
     /**
-     * @dev Set defaultIdType internal setter
+     * @dev Set set default id type internal setter
      * @param defaultIdType default id type
      */
     function _setDefaultIdType(bytes2 defaultIdType) internal {
         _defaultIdType = defaultIdType;
         _defaultIdTypeInitialized = true;
+        _stateData.isIdTypeSupported[defaultIdType] = true;
+    }
+
+    /**
+     * @dev Check if the id type is supported and return the id type
+     * @param id Identity
+     * trows if id type is not supported
+     */
+    function getIdTypeIfSupported(uint256 id) public view returns (bytes2) {
+        bytes2 idType = GenesisUtils.getIdType(id);
+        require(_stateData.isIdTypeSupported[idType], "id type is not supported");
+        return idType;
+    }
+
+    /**
+     * @dev Set supported IdType setter
+     * @param idType id type
+     * @param supported ability to enable or disable id type support
+     */
+    function setSupportedIdType(bytes2 idType, bool supported) public onlyOwner {
+        _stateData.isIdTypeSupported[idType] = supported;
     }
 }

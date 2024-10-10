@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity 0.8.20;
+pragma solidity 0.8.27;
 
 // TODO changing this value don't forget to change GistProof.siblings array size
 // figure out how to reuse the constant in the array size
@@ -67,6 +67,47 @@ interface IState {
         uint256 auxValue;
     }
 
+    struct IdentityStateUpdate {
+        IdentityStateMessage idStateMsg;
+        bytes signature;
+    }
+
+    struct GlobalStateUpdate {
+        GlobalStateMessage globalStateMsg;
+        bytes signature;
+    }
+
+    struct IdentityStateMessage {
+        uint256 timestamp;
+        uint256 id;
+        uint256 state;
+        uint256 replacedAtTimestamp;
+    }
+
+    struct GlobalStateMessage {
+        uint256 timestamp;
+        bytes2 idType;
+        uint256 root;
+        uint256 replacedAtTimestamp;
+    }
+
+    struct CrossChainProof {
+        string proofType;
+        bytes proof;
+    }
+
+    struct GlobalStateProcessResult {
+        bytes2 idType;
+        uint256 root;
+        uint256 replacedAtTimestamp;
+    }
+
+    struct IdentityStateProcessResult {
+        uint256 id;
+        uint256 state;
+        uint256 replacedAtTimestamp;
+    }
+
     /**
      * @dev Retrieve last state information of specific id.
      * @param id An identity.
@@ -91,6 +132,20 @@ interface IState {
      * @return The GIST root info.
      */
     function getGISTRootInfo(uint256 root) external view returns (GistRootInfo memory);
+
+    /**
+     * @dev Check if the id type supported.
+     * @param idType id type.
+     * @return True if the id type supported.
+     */
+    function isIdTypeSupported(bytes2 idType) external view returns (bool);
+
+    /**
+     * @dev Get id if the id type supported for the id, otherwise revert.
+     * @param id An identity.
+     * @return The id type.
+     */
+    function getIdTypeIfSupported(uint256 id) external view returns (bytes2);
 
     /**
      * @dev Get defaultIdType
@@ -150,4 +205,16 @@ interface IState {
      * @return True if the state exists
      */
     function stateExists(uint256 id, uint256 state) external view returns (bool);
+
+    function getStateReplacedAt(
+        uint256 id,
+        uint256 state
+    ) external view returns (uint256 replacedAtTimestamp);
+
+    function getGistRootReplacedAt(
+        bytes2 idType,
+        uint256 root
+    ) external view returns (uint256 replacedAtTimestamps);
+
+    function processCrossChainProofs(bytes calldata proofs) external;
 }

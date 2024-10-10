@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity 0.8.20;
+pragma solidity 0.8.27;
 
 import {PoseidonUnit2L, PoseidonUnit3L} from "./Poseidon.sol";
 import {ArrayUtils} from "./ArrayUtils.sol";
@@ -563,7 +563,7 @@ library SmtLib {
         return nodeHash;
     }
 
-    function _getNodeHash(Node memory node) internal view returns (uint256) {
+    function _getNodeHash(Node memory node) internal pure returns (uint256) {
         uint256 nodeHash = 0;
         if (node.nodeType == NodeType.LEAF) {
             uint256[3] memory params = [node.index, node.value, uint256(1)];

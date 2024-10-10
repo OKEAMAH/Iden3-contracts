@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity 0.8.20;
+pragma solidity 0.8.27;
 
 import {ArrayUtils} from "../lib/ArrayUtils.sol";
 
@@ -68,11 +68,13 @@ library StateLib {
         id1 => state2 => [index1]
          */
         mapping(uint256 => mapping(uint256 => uint256[])) stateIndexes;
+        // isIdTypeSupported is used to keep track of existing typeIds
+        mapping(bytes2 => bool) isIdTypeSupported;
         // This empty reserved space is put in place to allow future versions
         // of the State contract to add new SmtData struct fields without shifting down
         // storage of upgradable contracts that use this struct as a state variable
-        // (see https://docs.openzeppelin.com/upgrades-plugins/1.x/writing-upgradeable#storage-gaps)
-        uint256[48] __gap;
+        // (see https://docs.openzeppelin.com/upgrades-plugins/1.x/writing-upgradeable#storage-gaps)//
+        uint256[47] __gap;
     }
 
     /**
@@ -98,11 +100,7 @@ library StateLib {
      * @param id Identity
      * @param state State
      */
-    modifier onlyExistingState(
-        Data storage self,
-        uint256 id,
-        uint256 state
-    ) {
+    modifier onlyExistingState(Data storage self, uint256 id, uint256 state) {
         require(stateExists(self, id, state), "State does not exist");
         _;
     }

@@ -16,14 +16,21 @@ describe("Universal Verifier Linked proofs", function () {
     signerAddress = await signer.getAddress();
 
     deployHelper = await DeployHelper.initialize(null, true);
-    verifier = await deployHelper.deployUniversalVerifier(signer);
+    ({ state } = await deployHelper.deployState(["0x0112"]));
+
+    const verifierLib = await deployHelper.deployVerifierLib();
+
+    verifier = await deployHelper.deployUniversalVerifier(
+      signer,
+      await state.getAddress(),
+      await verifierLib.getAddress(),
+    );
 
     const contracts = await deployHelper.deployValidatorContracts(
-      "VerifierV3Wrapper",
-      "CredentialAtomicQueryV3Validator",
+      "v3",
+      await state.getAddress(),
     );
     v3 = contracts.validator;
-    state = contracts.state;
     await verifier.addValidatorToWhitelist(await v3.getAddress());
     await verifier.connect();
 

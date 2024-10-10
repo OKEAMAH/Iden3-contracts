@@ -4,14 +4,14 @@ import { DeployHelper } from "../../helpers/DeployHelper";
 import { Contract } from "ethers";
 import { publishStateWithStubProof } from "../utils/state-utils";
 
-const verifierStubName = "VerifierStub";
+const verifierStubName = "Groth16VerifierStub";
 
 describe("IdentityTreeStore", function () {
   let identityTreeStore, stateContract: Contract;
 
   beforeEach(async function () {
     const deployHelper = await DeployHelper.initialize();
-    ({ state: stateContract } = await deployHelper.deployState(verifierStubName));
+    ({ state: stateContract } = await deployHelper.deployState(["0x0100"], verifierStubName));
     ({ identityTreeStore } = await deployHelper.deployIdentityTreeStore(
       await stateContract.getAddress(),
     ));

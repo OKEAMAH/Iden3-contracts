@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity 0.8.20;
+pragma solidity 0.8.27;
 
 import {IIdentifiable} from "../interfaces/IIdentifiable.sol";
 import {IOnchainCredentialStatusResolver} from "../interfaces/IOnchainCredentialStatusResolver.sol";
-import {IState} from "../interfaces/IState.sol";
 import {IdentityLib} from "../lib/IdentityLib.sol";
 import {SmtLib} from "../lib/SmtLib.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
@@ -43,11 +42,12 @@ abstract contract IdentityBase is IIdentifiable, IOnchainCredentialStatusResolve
      * @dev Initialization of IdentityLib library
      * @param _stateContractAddr - address of the State contract
      */
-    function initialize(address _stateContractAddr) public virtual {
+    function initialize(address _stateContractAddr, bytes2 idType) public virtual {
         _getIdentityBaseStorage().identity.initialize(
             _stateContractAddr,
             address(this),
-            getSmtDepth()
+            getSmtDepth(),
+            idType
         );
     }
 
